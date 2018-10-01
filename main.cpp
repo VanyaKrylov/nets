@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <zconf.h>
 
+const int message_length = 10;
+
 pthread_t accept_thread;
 pthread_t threads[10];
 
@@ -28,16 +30,23 @@ int readn(int s, char *buf, int n)
 {
 
     int rc;
-    char tmp_buf[1];
+    char tmp_buf[message_length];
+    int read = 0;
 
-    for (int i = 0; i < n; ++i) {
+    while (read < n) {
 
-        rc = recv(s, tmp_buf, 1, 0);
+        rc = recv(s, tmp_buf, n - read, 0);
 
         if (rc <= 0)
             return -1;
 
-        buf[i] = tmp_buf[0];
+        if (rc <= 10) {
+            for (int j = 0; j < rc; ++j) {
+                buf[j + read] = tmp_buf[j];
+            }
+            read += rc;
+        }
+
     }
 
     return 1;
@@ -51,7 +60,7 @@ void *readn_routine(void *skp_void_ptr)
     auto *skp = (socket_key_map *)skp_void_ptr;
     int socket = skp->socket;
     int index = skp->index;
-    char buff[10];
+    char buff[message_length];
 
     while (1) {
         rc = readn(socket, buff, 10);
@@ -74,7 +83,9 @@ void *readn_routine(void *skp_void_ptr)
     }
 
     for (int i = index; i < connections - 1; ++i) {
+        pthread_mutex_lock(&mutex);
         sockets[i] = sockets[i+1];
+        pthread_mutex_unlock(&mutex);
     }
     connections -= 1;
 
