@@ -1,0 +1,1 @@
+/usr/bin/c++  -g   CMakeFiles/remote_terminal.dir/main.cpp.o  -o remote_terminal -lpthread 
