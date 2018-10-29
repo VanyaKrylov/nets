@@ -30,12 +30,12 @@
 *.exe
 *.out
 *.app
-*.idea*
+*.idea/*
 *.xml
 *.iml
 
 # build
-*cmake-build*
+*cmake-build-debug/*
 
 networks/
 tcpip/
