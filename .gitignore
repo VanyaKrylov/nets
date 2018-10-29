@@ -33,3 +33,6 @@
 *.idea
 *.xml
 *.iml
+
+# build
+*cmake-build*
