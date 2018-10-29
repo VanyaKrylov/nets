@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <zconf.h>
 
+const int max_connections = 10;
 const int message_length = 10;
 
 pthread_t accept_thread;
@@ -13,8 +14,9 @@ pthread_t threads[10];
 
 pthread_mutex_t mutex;
 
-int server_socket;
+//int server_socket;
 int sockets[10];
+
 
 int connections = 0;
 
@@ -82,26 +84,48 @@ void *readn_routine(void *skp_void_ptr)
         }
     }
 
-    for (int i = index; i < connections - 1; ++i) {
-        pthread_mutex_lock(&mutex);
-        sockets[i] = sockets[i+1];
-        pthread_mutex_unlock(&mutex);
+    pthread_mutex_lock(&mutex);
+    /*if (index < connections) {
+        for (int i = index; i < connections - 1; ++i) {
+            sockets[i] = sockets[i+1];
+        }
+    }
+
+    else {
+        sockets[index] = NULL;
+    }
+
+    connections -= 1;*/
+
+    for (int i = 0; i < connections; ++i) {
+        if (sockets[i] == socket) {
+            index = i;
+            for (int j = index; j < connections - 1; ++j) {
+                sockets[j] = sockets[j + 1];
+            }
+            break;
+        }
+
     }
     connections -= 1;
+    pthread_mutex_unlock(&mutex);
 
 }
 
-void *accept_routine(void *arg)
+void *accept_routine(void *server_socket_ptr)
 {
     socket_key_map skp;
     int socket;
     int result;
+    int local_connections;
+    auto *skp_ptr = (socket_key_map *)server_socket_ptr;
+    int server_socket = skp_ptr->socket;
     //void *ptr;
     //ptr = malloc(sizeof(int));
 
     while (1)
     {
-        if (connections < 10)
+        if (connections < max_connections)
         {
             socket = accept(server_socket, NULL, NULL);
             if (socket < 0) {
@@ -123,21 +147,31 @@ void *accept_routine(void *arg)
 
 
         }
+        else
+            sleep(1);
     }
     //free(ptr);
 
-    for(int i = 0; i < connections; ++i)
+    pthread_mutex_lock(&mutex);
+    local_connections = connections;
+    pthread_mutex_unlock(&mutex);
+
+    for(int i = 0; i < local_connections; ++i)
     {
-        result = shutdown(sockets[i], 2);
+        //printf("%d", local_connections);
+        //result = shutdown(sockets[i], 2);
+        result = shutdown(sockets[0], 2);
         if (result < 0)
             perror("shutdown call failed");
 
-        result = close(sockets[i]);
+        //result = close(sockets[i]);
+        result = close(sockets[0]);
         if (result < 0)
             perror("close call failed");
 
         pthread_join(threads[i], NULL);
     }
+
 
 }
 
@@ -149,15 +183,18 @@ int main(void)
     bool quit = 0;
     char in;
     int socket_index;
+    socket_key_map skp;
+    int server_socket;
 
-    pthread_mutex_init(&mutex, NULL);
-    pthread_create(&accept_thread, NULL, &accept_routine, NULL);
+
+
 
     local.sin_family = AF_INET;
     local.sin_port = htons(7500);
     local.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    skp.socket = socket(AF_INET, SOCK_STREAM, 0);
+    server_socket = skp.socket;
 
     if (server_socket < 0) {
         perror("socket call failed");
@@ -177,6 +214,9 @@ int main(void)
         perror("listen call failed");
         exit(1);
     }
+
+    pthread_mutex_init(&mutex, NULL);
+    pthread_create(&accept_thread, NULL, &accept_routine, &skp);
 
     while (1) {
         in = (char) getc(stdin);

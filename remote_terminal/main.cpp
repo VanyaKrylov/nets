@@ -5,9 +5,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <zconf.h>
+#include <map>
+#include <vector>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <cstring>
+
+
 
 const int max_connections = 10;
 const int message_length = 10;
+
+const int login_pair_size = 64;
+const int buf_size = 32;
+const int buf_out_size = 8192;
+
+std::map <std::string, std::string> usr_map;
+std::vector<std::string> root_users;
 
 pthread_t accept_thread;
 pthread_t threads[10];
@@ -25,14 +40,47 @@ struct _socket_key_map {
     int index;
 };
 
+
 typedef struct _socket_key_map socket_key_map;
+
+
+
+
+std::string exec(const char* cmd) {
+    char buffer[128];
+    std::string result = "";
+    FILE* pipe = popen(cmd, "r");
+    if (!pipe) throw std::runtime_error("popen() failed!");
+    try {
+        while (!feof(pipe)) {
+            if (fgets(buffer, 128, pipe) != NULL)
+                result += buffer;
+        }
+    } catch (...) {
+        pclose(pipe);
+        throw;
+    }
+    pclose(pipe);
+    return result;
+}
+
+
+
+
+int get_size(char* buf) {
+    int size;
+    size = (buf[0] - '0') * 1000 + (buf[1] - '0') * 100 +
+            (buf[2] - '0') * 10 + (buf[4] - '0');
+    return size;
+}
+
 
 
 int readn(int s, char *buf, int n)
 {
 
     int rc;
-    char tmp_buf[message_length];
+    char tmp_buf[n];
     int read = 0;
 
     while (read < n) {
@@ -61,42 +109,61 @@ void *readn_routine(void *skp_void_ptr)
     //int socket = *((int *)socket_ptr);
     auto *skp = (socket_key_map *)skp_void_ptr;
     int socket = skp->socket;
-    int index = skp->index;
+    int index;
+    int input_size;
+    //int index = skp->index;
     char buff[message_length];
+    std::string output;
+    bool logout;
+
+    char login_buf[login_pair_size];
+    char buf[ buf_size ];
+    char buf_out[buf_out_size];
+    char sub_buf[ buf_size ];
 
     while (1) {
-        rc = readn(socket, buff, 10);
-
+        //login
+        rc = readn(socket, buf, buf_size);
         if (rc < 0)
         {
             perror("recv call failed");
             break;
         }
+        input_size = get_size(buf);
+        switch (buf[4]) {
+            case '1': {
+                output = exec("ls");
+                std::cout << output << std::endl;
+                break;
+            }
+            case '2': {
+                strncpy(sub_buf, buf+5, input_size);
+                output = exec(sub_buf);
+                break;
+            }
+            case '3': {
+                break;
+            }
+            case '4': {
+                break;
+            }
+            case '5': {
+                logout = 1;
+                break;
+            }
+        }
 
-        printf("%d\t%d: \'%s\'\n", index, rc, buff);
-
-        rc = send(socket, "OK\n", 3, 0);
+        if (logout)
+            break;
+        //printf("%d\t%d: \'%s\'\n", index, rc, buff);
+        rc = send(socket, output.c_str(), output.size(), 0);
         if (rc <= 0)
-
         {
             perror("send call failed");
             break;
         }
     }
-
     pthread_mutex_lock(&mutex);
-    /*if (index < connections) {
-        for (int i = index; i < connections - 1; ++i) {
-            sockets[i] = sockets[i+1];
-        }
-    }
-
-    else {
-        sockets[index] = NULL;
-    }
-
-    connections -= 1;*/
-
     for (int i = 0; i < connections; ++i) {
         if (sockets[i] == socket) {
             index = i;
@@ -105,7 +172,6 @@ void *readn_routine(void *skp_void_ptr)
             }
             break;
         }
-
     }
     connections -= 1;
     pthread_mutex_unlock(&mutex);
@@ -186,8 +252,12 @@ int main(void)
     socket_key_map skp;
     int server_socket;
 
-
-
+    usr_map.insert(std::pair <std::string, std::string> ("vaddya", "32283228"));
+    usr_map.insert(std::pair <std::string, std::string> ("lamtev2000", "iluvclassmates"));
+    usr_map.insert(std::pair <std::string, std::string> ("mikle_undef", "arguetill_theend"));
+    usr_map.insert(std::pair <std::string, std::string> ("valik", "1228"));
+    usr_map.insert(std::pair <std::string, std::string> ("ivan", "0000"));
+    root_users.push_back("ivan");
 
     local.sin_family = AF_INET;
     local.sin_port = htons(7500);

@@ -6,3 +6,31 @@
 
 #IncludeRegexTransform: 
 
+/home/ivan/Documents/nets/remote_terminal/main.cpp
+sys/types.h
+-
+sys/socket.h
+-
+pthread.h
+-
+netinet/in.h
+-
+stdio.h
+-
+stdlib.h
+-
+zconf.h
+-
+map
+-
+vector
+-
+iostream
+-
+stdexcept
+-
+string
+-
+cstring
+-
+
