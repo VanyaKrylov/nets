@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <zconf.h>
 #include <map>
+#include <algorithm>
 #include <vector>
 #include <iostream>
 #include <stdexcept>
@@ -22,7 +23,7 @@ const int max_connections = 10;
 const int message_length = 10;
 
 const int login_pair_size = 64;
-const int buf_size = 32;
+const int buf_size = 256;
 const int buf_out_size = 8192;
 //const int buf_out_size = 128;
 
@@ -126,9 +127,10 @@ void *readn_routine(void *skp_void_ptr)
     char* password;
     char cwd[256];
     int socket_index;
+    int chdir_ret;
     std::map<std::string, std::string>::iterator it;
 
-
+    //login loop
     while (1) {
         rc = readn(socket, login_buf, login_pair_size);
         if (rc < 0)
@@ -139,22 +141,29 @@ void *readn_routine(void *skp_void_ptr)
         running = strdupa(login_buf);
         u_name = strsep(&running, ":");
         password = strsep(&running, ":");
-        if (usr_map.find(u_name)->second == password )
-        {
-            login[0] = '1';
-            rc = send(socket, login, 1, 0);
-            if (rc <= 0)
-            {
-                perror("send call failed");
-                break;
-            }
-            break;
-        } else {
-            login[0] = '0';
+        if (usr_session.find(u_name) != usr_session.end()) {
+            login[0] = '2';
             rc = send(socket, login, 1, 0);
             if (rc <= 0) {
                 perror("send call failed");
                 break;
+            }
+        } else {
+            if (usr_map.find(u_name)->second == password) {
+                login[0] = '1';
+                rc = send(socket, login, 1, 0);
+                if (rc <= 0) {
+                    perror("send call failed");
+                    break;
+                }
+                break;
+            } else {
+                login[0] = '0';
+                rc = send(socket, login, 1, 0);
+                if (rc <= 0) {
+                    perror("send call failed");
+                    break;
+                }
             }
         }
     }
@@ -185,9 +194,17 @@ void *readn_routine(void *skp_void_ptr)
             }
             case '2': {
                 strncpy(sub_buf, buf+5, input_size);
-                std::cout << "Running cd" << std::endl;
+                chdir_ret = chdir(sub_buf);
+                if (chdir_ret < 0) {
+                    perror("Chdir error");
+                    output = "Unsuccesfull";
+                } else {
+                    usr_session.find(u_name)->second = std::string(sub_buf);
+                    output = std::string(sub_buf);
+                }
+                //std::cout << "Running cd" << std::endl;
                 //output = exec(sub_buf);
-                output = exec( std::string("cd").append(std::string(sub_buf)).c_str() );
+                //output = exec( std::string("cd").append(std::string(sub_buf)).c_str() );
                 break;
             }
             case '3': {
@@ -196,23 +213,33 @@ void *readn_routine(void *skp_void_ptr)
                 break;
             }
             case '4': {
-                std::cout << "kill" << std::endl;
-                strncpy(sub_buf, buf+5, input_size);
-                socket_index = usr_socket_map.find(std::string(sub_buf))->second;
-                std::cout << socket_index << std::endl;
-                rc = shutdown(socket_index, 2);
-                if (rc < 0)
-                    perror("Failed to shutdown socket");
+                if (std::find(root_users.begin(), root_users.end(), u_name) != root_users.end()) {
+                    strncpy(sub_buf, buf + 5, input_size);
+                    if ( std::string(sub_buf) == u_name ) {
+                        output = "You can not kill your own session. Use 'logout' command instead";
+                    } else {
+                        socket_index = usr_socket_map.find(std::string(sub_buf))->second;
+                        rc = shutdown(socket_index, 2);
+                        if (rc < 0)
+                            perror("Failed to shutdown socket");
 
-                rc = close(socket_index);
-                if (rc < 0)
-                    perror("Failed to close socket");
-                output = "Succesful murder";
+                        rc = close(socket_index);
+                        if (rc < 0)
+                            perror("Failed to close socket");
+                        output = "Succesful murder";
+                    }
+                } else
+                {
+                    output = "Permission denied";
+                }
                 break;
             }
             case '5': {
                 logout = 1;
                 break;
+            }
+            default: {
+                continue;
             }
         }
 

@@ -9,7 +9,7 @@
 #include <cstring>
 
 const int login_pair_size = 64;
-const int buf_size = 32;
+const int buf_size = 256;
 const int buf_out_size = 8192;
 //const int buf_out_size = 128;
 const int message_length_buffer_field = 4;
@@ -141,8 +141,10 @@ int main( void )
             if (logInRes[0] == '1') {
                 printf("Succesfully logged in \n");
                 break;
-            } else
-                printf("Wrong user:password pair \n");
+            } else if (logInRes[0] == '2')
+                printf("Already logged in in another session \n");
+            else
+                printf("Wrong login:password pair \n");
         }
     }
 
@@ -175,7 +177,7 @@ int main( void )
                 std::cout << "Incorrect input format" << std::endl;
                 continue;
             } else {
-                substring = str.substr(2);
+                substring = str.substr(3);
                 if (substring.size() > buf_size - message_length_buffer_field) {
                     perror("Out of input size, max length is 30 symbols");
                     break;
@@ -208,7 +210,7 @@ int main( void )
                 substring = str.substr(5);
                 if (substring.size() > buf_size - message_length_buffer_field) {
                     perror("Out of input size, max length is 30 symbols");
-                    break;
+                    //break;
                 } else {
                     for (int i = 0; i < substring.size(); ++i) {
                         buf[i + message_length_buffer_field + 1] = substring[i];

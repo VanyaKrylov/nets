@@ -23,6 +23,8 @@ zconf.h
 -
 map
 -
+algorithm
+-
 vector
 -
 iostream
