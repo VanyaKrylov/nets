@@ -11,6 +11,10 @@
 #include <stdexcept>
 #include <string>
 #include <cstring>
+#include <stddef.h>
+#define _POSIX_SOURCE
+#include <unistd.h>
+#undef _POSIX_SOURCE
 
 
 
@@ -20,9 +24,12 @@ const int message_length = 10;
 const int login_pair_size = 64;
 const int buf_size = 32;
 const int buf_out_size = 8192;
+//const int buf_out_size = 128;
 
 std::map <std::string, std::string> usr_map;
 std::vector<std::string> root_users;
+std::map <std::string, std::string> usr_session;
+std::map <std::string, int> usr_socket_map;
 
 pthread_t accept_thread;
 pthread_t threads[10];
@@ -70,59 +77,98 @@ std::string exec(const char* cmd) {
 int get_size(char* buf) {
     int size;
     size = (buf[0] - '0') * 1000 + (buf[1] - '0') * 100 +
-            (buf[2] - '0') * 10 + (buf[4] - '0');
-    return size;
+            (buf[2] - '0') * 10 + (buf[3] - '0');
+    return size-1;
 }
 
 
 
 int readn(int s, char *buf, int n)
 {
-
     int rc;
     char tmp_buf[n];
     int read = 0;
 
     while (read < n) {
-
         rc = recv(s, tmp_buf, n - read, 0);
-
-        if (rc <= 0)
+        if (rc < 0)
             return -1;
-
-        if (rc <= 10) {
+        if (rc <= n) {
             for (int j = 0; j < rc; ++j) {
                 buf[j + read] = tmp_buf[j];
             }
             read += rc;
         }
-
     }
-
     return 1;
 }
 
-//void *readn_routine(void *socket_ptr)
+
+
 void *readn_routine(void *skp_void_ptr)
 {
     int rc;
-    //int socket = *((int *)socket_ptr);
     auto *skp = (socket_key_map *)skp_void_ptr;
     int socket = skp->socket;
     int index;
     int input_size;
-    //int index = skp->index;
     char buff[message_length];
     std::string output;
     bool logout;
+    char login[1];
 
     char login_buf[login_pair_size];
     char buf[ buf_size ];
     char buf_out[buf_out_size];
     char sub_buf[ buf_size ];
+    char* running;
+    char* u_name;
+    char* password;
+    char cwd[256];
+    int socket_index;
+    std::map<std::string, std::string>::iterator it;
+
 
     while (1) {
-        //login
+        rc = readn(socket, login_buf, login_pair_size);
+        if (rc < 0)
+        {
+            perror("recv call failed");
+            break;
+        }
+        running = strdupa(login_buf);
+        u_name = strsep(&running, ":");
+        password = strsep(&running, ":");
+        if (usr_map.find(u_name)->second == password )
+        {
+            login[0] = '1';
+            rc = send(socket, login, 1, 0);
+            if (rc <= 0)
+            {
+                perror("send call failed");
+                break;
+            }
+            break;
+        } else {
+            login[0] = '0';
+            rc = send(socket, login, 1, 0);
+            if (rc <= 0) {
+                perror("send call failed");
+                break;
+            }
+        }
+    }
+
+    pthread_mutex_lock(&mutex);
+    usr_socket_map.insert(std::pair <std::string, int> (u_name, socket));
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        perror("getcwd() error");
+    else
+        usr_session.insert(std::pair <std::string, std::string> (u_name, std::string(cwd)));
+    pthread_mutex_unlock(&mutex);
+
+    while (1) {
+        //process requests
         rc = readn(socket, buf, buf_size);
         if (rc < 0)
         {
@@ -130,21 +176,38 @@ void *readn_routine(void *skp_void_ptr)
             break;
         }
         input_size = get_size(buf);
+
         switch (buf[4]) {
             case '1': {
                 output = exec("ls");
-                std::cout << output << std::endl;
+                //std::cout << output << std::endl;
                 break;
             }
             case '2': {
                 strncpy(sub_buf, buf+5, input_size);
-                output = exec(sub_buf);
+                std::cout << "Running cd" << std::endl;
+                //output = exec(sub_buf);
+                output = exec( std::string("cd").append(std::string(sub_buf)).c_str() );
                 break;
             }
             case '3': {
+                for (it=usr_session.begin(); it!=usr_session.end(); ++it)
+                    output = output + it->first + ' ' + it->second + '\n';
                 break;
             }
             case '4': {
+                std::cout << "kill" << std::endl;
+                strncpy(sub_buf, buf+5, input_size);
+                socket_index = usr_socket_map.find(std::string(sub_buf))->second;
+                std::cout << socket_index << std::endl;
+                rc = shutdown(socket_index, 2);
+                if (rc < 0)
+                    perror("Failed to shutdown socket");
+
+                rc = close(socket_index);
+                if (rc < 0)
+                    perror("Failed to close socket");
+                output = "Succesful murder";
                 break;
             }
             case '5': {
@@ -153,15 +216,23 @@ void *readn_routine(void *skp_void_ptr)
             }
         }
 
-        if (logout)
+        if (logout) {
+            pthread_mutex_lock(&mutex);
+            usr_socket_map.erase(u_name);
+            usr_session.erase(u_name);
+            pthread_mutex_unlock(&mutex);
             break;
+        }
         //printf("%d\t%d: \'%s\'\n", index, rc, buff);
-        rc = send(socket, output.c_str(), output.size(), 0);
+        std::strcpy(buf_out, output.c_str());
+        rc = send(socket, buf_out, buf_out_size, 0);
         if (rc <= 0)
         {
             perror("send call failed");
             break;
         }
+        memset(&buf_out, 0, sizeof(buf_out));
+        output.clear();
     }
     pthread_mutex_lock(&mutex);
     for (int i = 0; i < connections; ++i) {
@@ -174,6 +245,8 @@ void *readn_routine(void *skp_void_ptr)
         }
     }
     connections -= 1;
+    usr_socket_map.erase(u_name);
+    usr_session.erase(u_name);
     pthread_mutex_unlock(&mutex);
 
 }
