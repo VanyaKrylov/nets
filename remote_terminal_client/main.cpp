@@ -79,6 +79,7 @@ int readn(int s, char *buf, int n)
 
 int main( void )
 {
+    //tcp
     struct sockaddr_in peer;
     int s;
     int rc;
@@ -92,10 +93,21 @@ int main( void )
     std::string login_str;
     login_str.resize(64);
 
+    //UDP
+    int sock, n;
+    struct sockaddr_in server, from;
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) perror("socket");
+
+    server.sin_family = AF_INET;
+    server.sin_port = htons( 7500 );
+    server.sin_addr.s_addr = inet_addr( "127.0.0.1" );
+
+    //END
+
     char login_buf[login_pair_size];
     char buf[ buf_size ];
     char buf_out[buf_out_size];
-
 
     peer.sin_family = AF_INET;
     peer.sin_port = htons( 7500 );

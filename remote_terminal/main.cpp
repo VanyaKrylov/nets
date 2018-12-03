@@ -189,6 +189,7 @@ void *readn_routine(void *skp_void_ptr)
         switch (buf[4]) {
             case '1': {
                 output = exec("ls");
+                sleep(200);
                 //std::cout << output << std::endl;
                 break;
             }
