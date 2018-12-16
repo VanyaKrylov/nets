@@ -47,12 +47,7 @@ struct _socket_key_map {
     int socket;
     int index;
 };
-
-
 typedef struct _socket_key_map socket_key_map;
-
-
-
 
 std::string exec(const char* cmd) {
     char buffer[128];
@@ -189,7 +184,7 @@ void *readn_routine(void *skp_void_ptr)
         switch (buf[4]) {
             case '1': {
                 output = exec("ls");
-                sleep(200);
+                //sleep(200);
                 //std::cout << output << std::endl;
                 break;
             }
