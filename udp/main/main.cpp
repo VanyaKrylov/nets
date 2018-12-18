@@ -35,7 +35,8 @@ std::map <std::string, std::string> usr_map;
 std::vector<std::string> root_users;
 std::map <std::string, std::string> usr_session;
 std::map <std::string, sockaddr_in> usr_addr_map;
-std::vector<sockaddr_in> logged_in_addrs, waiting_for_ack;
+std::vector<sockaddr_in> logged_in_addrs;
+std::vector<sockaddr_in> waiting_for_ack;
 //std::map <sockaddr_in, std::string> response_buf;
 
 
@@ -152,10 +153,9 @@ void *login_routine(void *data)
 }
 
 
-void *terminal_routine(void *data)
-{
+void *terminal_routine(void *data) {
     int rc;
-    auto *rd_ptr = (Routine_data *)data;
+    auto *rd_ptr = (Routine_data *) data;
     int socket = rd_ptr->socket;
     sockaddr_in addr = rd_ptr->addr;
     unsigned int slen = sizeof(addr);
@@ -165,7 +165,7 @@ void *terminal_routine(void *data)
     int socket_index;
     int chdir_ret;
     char buf_out[buf_out_size];
-    char sub_buf[ BUFLEN ];
+    char sub_buf[BUFLEN];
     bool logout;
     int input_size;
     std::string output;
@@ -174,10 +174,9 @@ void *terminal_routine(void *data)
     //std::strcpy(buf, rd_ptr->buf);
 
     input_size = get_size(buf);
-    for ( auto &i : usr_addr_map ) {
+    for (auto &i : usr_addr_map) {
         if (inet_ntoa(i.second.sin_addr) == inet_ntoa(addr.sin_addr) &&
-            (ntohs(i.second.sin_port) == ntohs(addr.sin_port)))
-        {
+            (ntohs(i.second.sin_port) == ntohs(addr.sin_port))) {
             u_name = i.first;
             break;
         }
@@ -192,7 +191,7 @@ void *terminal_routine(void *data)
             break;
         }
         case '2': {
-            strncpy(sub_buf, buf+5, input_size);
+            strncpy(sub_buf, buf + 5, input_size);
             chdir_ret = chdir(sub_buf);
             if (chdir_ret < 0) {
                 perror("Chdir error");
@@ -207,27 +206,25 @@ void *terminal_routine(void *data)
             break;
         }
         case '3': {
-            for (it=usr_session.begin(); it!=usr_session.end(); ++it)
+            for (it = usr_session.begin(); it != usr_session.end(); ++it)
                 output = output + it->first + ' ' + it->second + '\n';
             break;
         }
         case '4': {
             if (std::find(root_users.begin(), root_users.end(), u_name) != root_users.end()) {
                 strncpy(sub_buf, buf + 5, input_size);
-                if ( std::string(sub_buf) == u_name ) {
+                if (std::string(sub_buf) == u_name) {
                     output = "You can not kill your own session. Use 'logout' command instead";
                 } else {
-                    for ( auto i = logged_in_addrs.begin(); i != logged_in_addrs.end(); ++i ) {
+                    for (auto i = logged_in_addrs.begin(); i != logged_in_addrs.end();) {
                         if (inet_ntoa(i->sin_addr) == inet_ntoa(usr_addr_map.find(std::string(sub_buf))->second.sin_addr) &&
-                           (ntohs(i->sin_port) == ntohs(usr_addr_map.find(std::string(sub_buf))->second.sin_port)))
-                        {
+                            (ntohs(i->sin_port) == ntohs(usr_addr_map.find(std::string(sub_buf))->second.sin_port))) {
                             logged_in_addrs.erase(i);
-                        }
+                        } else {++i;}
                     }
                     output = "Succesful murder";
                 }
-            } else
-            {
+            } else {
                 output = "Permission denied";
             }
             break;
@@ -241,22 +238,22 @@ void *terminal_routine(void *data)
     if (logout) {
         pthread_mutex_lock(&mutex);
         //usr_socket_map.erase(u_name);
-        for ( auto i = logged_in_addrs.begin(); i != logged_in_addrs.end(); ++i ) {
-            if ( (inet_ntoa(i->sin_addr) == inet_ntoa(addr.sin_addr)) &&
-                ( ntohs(i->sin_port) == ntohs(usr_addr_map.find(std::string(sub_buf))->second.sin_port)) )
-            {
+        for (auto i = logged_in_addrs.begin(); i != logged_in_addrs.end();) {
+            if ((inet_ntoa(i->sin_addr) == inet_ntoa(addr.sin_addr)) &&
+                (ntohs(i->sin_port) == ntohs(addr.sin_port))) {
                 logged_in_addrs.erase(i);
-            }
+                //break;
+            } else {++i;}
         }
         usr_session.erase(u_name);
         pthread_mutex_unlock(&mutex);
-    }
+    } else {
     //printf("%d\t%d: \'%s\'\n", index, rc, buff);
-    std::strcpy(buf_out, output.c_str());
-    rc = sendto(socket, buf_out, buf_out_size, 0, (struct sockaddr *) &addr, slen);
-    if (rc <= 0)
-    {
-        perror("send call failed");
+        std::strcpy(buf_out, output.c_str());
+        rc = sendto(socket, buf_out, buf_out_size, 0, (struct sockaddr *) &addr, slen);
+        if (rc <= 0) {
+            perror("send call failed");
+        }
     }
     memset(&buf_out, 0, sizeof(buf_out));
     output.clear();
@@ -512,16 +509,20 @@ int main(void)
                     perror("Index out of range");
                     break;
                 }
+                pthread_mutex_lock(&mutex);
                 logged_in_addrs.erase(logged_in_addrs.begin() + socket_index);
+                pthread_mutex_unlock(&mutex);
                 break;
             }
             case 'l': {
+                pthread_mutex_lock(&mutex);
                 std::cout << "Connections: " << logged_in_addrs.size() << std::endl;
                 int i = 0;
                 for ( auto &c : logged_in_addrs ) {
                     std::cout << i << "\t" << inet_ntoa(c.sin_addr) << ":" << htons(c.sin_port) << std::endl;
                     i++;
                 }
+                pthread_mutex_unlock(&mutex);
                 break;
             }
             case 'q': {
