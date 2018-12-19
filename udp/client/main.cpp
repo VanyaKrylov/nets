@@ -27,10 +27,8 @@
 
 #define LOGIN_L 1
 
-const int login_pair_size = 64;
 const int buf_size = 512;
 const int buf_out_size = 8192;
-//const int buf_out_size = 128;
 const int size_gap = 4;
 const int index_gap = 4;
 
@@ -65,27 +63,11 @@ void pack_index(char* buf, ulong index)
 }
 
 
-void pack_index_str(std::string& buf, ulong index)
-{
-    char c;
-    for ( int i = buf_size - 1; i >= buf_size - 4; --i ) {
-        if ( index > 0 ) {
-            c = char(index % 10) + '0';
-            buf[i] = c;
-        } else {
-            buf[i] = '0';
-        }
-        index /= 10;
-    }
-}
-
-
 int main( void )
 {
     int s;
     int rc;
     int command_descriptor_index = size_gap;
-    //int command;
     int msg_size = 32;
     bool noInput = 1;
     char logInRes[1];
@@ -122,7 +104,6 @@ int main( void )
 
     //Log in loop
 
-
     while (1) {
         index = index + 1;
         printf("Log in: {user_name}:{password}: \n");
@@ -130,10 +111,6 @@ int main( void )
         if (login_str.size() > buf_size - size_gap - index_gap) {
             perror("Incorrect authentication length, should be less than 64");
         } else {
-            //pack_size(login_buf, str.size());
-            //for (int i = 0; i < str.size(); ++i) {
-            //    login_buf[i+size_gap] = str[i];
-            //}
             login_str.resize(buf_size, 0);
             strcpy(login_buf, login_str.c_str());
             pack_index(login_buf, index);
@@ -159,19 +136,12 @@ int main( void )
                 }
             }
 
-            /*
-            rc = sendto(s, "1", 1, 0, (struct sockaddr *) &from, slen);
-            if (rc <= 0) {
-                perror("ack call failed");
-                exit(1);
-            }
-             */
             if (logInRes[0] == '1') {
                 printf("Succesfully logged in \n");
                 break;
             } else if (logInRes[0] == '2')
                 printf("Already logged in in another session \n");
-            else if (logInRes[0] == '3')
+            else if (logInRes[0] == '*')
                 printf("Incorrect format \n");
             else {
                 printf("Wrong login:password pair \n");
@@ -185,7 +155,6 @@ int main( void )
     while(1) {
 
         std::getline (std::cin, str);
-        //std::cin >> str;
 
         if (str == "ls") {
             //packing message size 0001 to buffer
@@ -204,8 +173,6 @@ int main( void )
             buf[command_descriptor_index - 1] = '1';
             buf[command_descriptor_index] = '2';
             if (str[2] != ' ') {
-                //perror("Incorrect input format");
-                //break;
                 std::cout << "Incorrect input format" << std::endl;
                 continue;
             } else {
@@ -274,7 +241,6 @@ int main( void )
         else
             noInput = 1;
 
-
         if (!noInput) {
             //rc = send(s, buf, buf_size, 0);
             index ++;
@@ -285,8 +251,6 @@ int main( void )
                 break;
             }
 
-
-            //rc = readn(s, buf_out, buf_out_size);
             if ( recvfrom(s, buf_out, buf_out_size, 0, (struct sockaddr *) &from, &slen) < 0 ) {
                 for (int i = 0; i <= 10; ++i) {
                     if (recvfrom(s, buf_out, buf_out_size, 0, (struct sockaddr *) &from, &slen) < 0) {
@@ -303,17 +267,13 @@ int main( void )
                 }
             }
 
-            if (buf_out[0] == '3')
+            if (buf_out[0] == '*')
             {
                 std::cout << "Session closed by administrator" << std::endl;
                 exit(0);
             }
             std::cout << "Received: \n" << std::string(buf_out) << std::endl; //may not work */
             memset(&buf_out, 0, sizeof(buf_out));
-
-
-            //std::cout << str.substr(1, str[0]);
-            //str.clear();
         }
 
     }

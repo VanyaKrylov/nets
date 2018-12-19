@@ -36,8 +36,6 @@ std::vector<std::string> root_users;
 std::map <std::string, std::string> usr_session;
 std::map <std::string, sockaddr_in> usr_addr_map;
 std::vector<sockaddr_in> logged_in_addrs;
-std::vector<sockaddr_in> killed;
-//std::map <sockaddr_in, std::string> response_buf;
 
 
 struct Socket_key_map {
@@ -51,10 +49,7 @@ struct Routine_data {
     int index;
     sockaddr_in addr;
     std::string buf;
-    //char buf[BUFLEN];
-    //struct sockaddr_in addr;
 };
-//typedef struct _socket_key_map Socket_key_map;
 
 struct Addr_resp_pair {
     sockaddr_in addr;
@@ -111,12 +106,10 @@ void *login_routine(void *data)
     int socket = rd_ptr->socket;
     sockaddr_in addr = rd_ptr->addr;
     unsigned int slen = sizeof(addr);
-    //struct sockaddr_in addr = rd_ptr->addr;
     char login_buf[BUFLEN];
     std::strcpy(login_buf, rd_ptr->buf.c_str());
     char cwd[256];
     std::string str_u_name;
-    //std::strcpy(login_buf, rd_ptr->buf);
 
     int rc;
     char login[1];
@@ -129,14 +122,12 @@ void *login_routine(void *data)
 
     if (rd_ptr->buf.find(":") == std::string::npos)
     {
-        login[0] = '3';
+        login[0] = '*';
         sendto(socket, login, 1, 0, (struct sockaddr *) &addr, slen);
     } else {
-    //logic
         running = strdupa(login_buf);
         u_name = strsep(&running, ":");
         password = strsep(&running, ":");
-    //
         if (usr_session.find(u_name) != usr_session.end()) {
             login[0] = '2';
             rc = sendto(socket, login, 1, 0, (struct sockaddr *) &addr, slen);
@@ -208,7 +199,6 @@ void *terminal_routine(void *data) {
     std::string output;
     std::string u_name;
     std::map<std::string, std::string>::iterator it;
-    //std::strcpy(buf, rd_ptr->buf);
 
     input_size = get_size(buf);
     for (auto &i : usr_addr_map) {
@@ -223,8 +213,6 @@ void *terminal_routine(void *data) {
     switch (buf[4]) {
         case '1': {
             output = exec("ls");
-            //sleep(200);
-            //std::cout << output << std::endl;
             break;
         }
         case '2': {
@@ -237,9 +225,6 @@ void *terminal_routine(void *data) {
                 usr_session.find(u_name)->second = std::string(sub_buf);
                 output = std::string(sub_buf);
             }
-            //std::cout << "Running cd" << std::endl;
-            //output = exec(sub_buf);
-            //output = exec( std::string("cd").append(std::string(sub_buf)).c_str() );
             break;
         }
         case '3': {
@@ -267,7 +252,6 @@ void *terminal_routine(void *data) {
                         if ((inet_ntoa(i->addr.sin_addr) == inet_ntoa(victim_addr.sin_addr)) &&
                             (ntohs(i->addr.sin_port) == ntohs(victim_addr.sin_port))) {
                             response_buf.erase(i);
-                            //break;
                         } else {++i;}
                     }
                     for (auto i = indexes.begin(); i != indexes.end();) {
@@ -293,7 +277,6 @@ void *terminal_routine(void *data) {
 
     if (logout) {
         pthread_mutex_lock(&mutex);
-        //usr_socket_map.erase(u_name);
         for (auto i = logged_in_addrs.begin(); i != logged_in_addrs.end();) {
             if ((inet_ntoa(i->sin_addr) == inet_ntoa(addr.sin_addr)) &&
                 (ntohs(i->sin_port) == ntohs(addr.sin_port))) {
@@ -304,7 +287,6 @@ void *terminal_routine(void *data) {
         usr_session.erase(u_name);
         pthread_mutex_unlock(&mutex);
     } else {
-    //printf("%d\t%d: \'%s\'\n", index, rc, buff);
         std::strcpy(buf_out, output.c_str());
         rc = sendto(socket, buf_out, buf_out_size, 0, (struct sockaddr *) &addr, slen);
         if (rc <= 0) {
@@ -346,7 +328,6 @@ void *repeat_response_routine(void *data)
 
 void *recvfrom_routine(void *server_socket_ptr)
 {
-    //struct sockaddr_in si_other;
     sockaddr_in si_other;
     char buf[BUFLEN];
     auto *skp_ptr = (Socket_key_map *)server_socket_ptr;
@@ -362,7 +343,6 @@ void *recvfrom_routine(void *server_socket_ptr)
     std::string temp = "Session closed by administrator";
 
     while(1) {
-        //try to receive some data, this is a blocking call
         if (connections < max_connections)
         {
             recv_len = recvfrom(s, buf, BUFLEN, 0, (struct sockaddr *) &si_other, &slen);
@@ -390,8 +370,6 @@ void *recvfrom_routine(void *server_socket_ptr)
             }
 
             for ( Addr_index_pair &i : indexes ) {
-                //std::cout << inet_ntoa(i.addr.sin_addr)  <<" Index stored:" << i.index << "port: " << ntohs(i.addr.sin_port) << std::endl;
-                //std::cout << inet_ntoa(si_other.sin_addr)  <<" Index stored:" << i.index << "port: " << ntohs(si_other.sin_port) << std::endl;
                 if ( ( inet_ntoa(i.addr.sin_addr) == inet_ntoa(si_other.sin_addr) ) &&
                      ( ntohs(i.addr.sin_port) == ntohs(si_other.sin_port) ))
                 {
