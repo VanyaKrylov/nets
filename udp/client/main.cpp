@@ -31,30 +31,8 @@ const int login_pair_size = 64;
 const int buf_size = 512;
 const int buf_out_size = 8192;
 //const int buf_out_size = 128;
-const int size_index = 8;
-
-
-
-
-std::string exec(const char* cmd) {
-    char buffer[128];
-    std::string result = "";
-    FILE* pipe = popen(cmd, "r");
-    if (!pipe) throw std::runtime_error("popen() failed!");
-    try {
-        while (!feof(pipe)) {
-            if (fgets(buffer, 128, pipe) != NULL)
-                result += buffer;
-        }
-    } catch (...) {
-        pclose(pipe);
-        throw;
-    }
-    pclose(pipe);
-    return result;
-}
-
-
+const int size_gap = 4;
+const int index_gap = 4;
 
 
 void pack_size(char* buf, ulong size)
@@ -75,7 +53,7 @@ void pack_size(char* buf, ulong size)
 void pack_index(char* buf, ulong index)
 {
     char c;
-    for ( int i = buf_size; i >= buf_size - 3; --i ) {
+    for ( int i = buf_size - 1; i >= buf_size - 4; --i ) {
         if ( index > 0 ) {
             c = char(index % 10) + '0';
             buf[i] = c;
@@ -87,10 +65,10 @@ void pack_index(char* buf, ulong index)
 }
 
 
-void pack_index_str(std::string buf, ulong index)
+void pack_index_str(std::string& buf, ulong index)
 {
     char c;
-    for ( int i = buf_size; i >= buf_size - 3; --i ) {
+    for ( int i = buf_size - 1; i >= buf_size - 4; --i ) {
         if ( index > 0 ) {
             c = char(index % 10) + '0';
             buf[i] = c;
@@ -106,7 +84,7 @@ int main( void )
 {
     int s;
     int rc;
-    int command_descriptor_index = size_index;
+    int command_descriptor_index = size_gap;
     //int command;
     int msg_size = 32;
     bool noInput = 1;
@@ -115,13 +93,12 @@ int main( void )
     std::string str;
     std::string substring;
     std::string login_str;
-    login_str.resize(buf_size);
     timeval timeval1;
     timeval1.tv_sec = 3;
     timeval1.tv_usec = 0;
 
     int n;
-    struct sockaddr_in server, from;
+    struct sockaddr_in from;
     unsigned int slen = sizeof(from);
     s = socket(AF_INET, SOCK_DGRAM, 0);
     if (s < 0)
@@ -150,55 +127,68 @@ int main( void )
         index++;
         printf("Log in: {user_name}:{password}: \n");
         std::getline(std::cin, login_str);
-        if (login_str.size() > buf_size - size_index) {
+        if (login_str.size() > buf_size - size_gap - index_gap) {
             perror("Incorrect authentication length, should be less than 64");
         } else {
             //pack_size(login_buf, str.size());
             //for (int i = 0; i < str.size(); ++i) {
-            //    login_buf[i+size_index] = str[i];
+            //    login_buf[i+size_gap] = str[i];
             //}
+            login_str.resize(buf_size, 0);
             pack_index_str(login_str, index);
             rc = sendto(s, login_str.c_str(), buf_size, 0, (struct sockaddr *) &from, slen);
             if (rc <= 0) {
                 perror("send call failed");
                 exit(1);
             }
-            //rc = readn(s, logInRes, 1);
             //ack loop
-            while ( recvfrom(s, logInRes, LOGIN_L, 0, (struct sockaddr *) &from, &slen) < 0 ) {
-                rc = sendto(s, login_str.c_str(), buf_size, 0, (struct sockaddr *) &from, slen);
-                if (rc <= 0) {
-                    perror("send call failed");
-                    exit(1);
+            if ( recvfrom(s, logInRes, LOGIN_L, 0, (struct sockaddr *) &from, &slen) < 0 ) {
+                for (int i = 0; i <= 10; ++i) {
+                    if (recvfrom(s, logInRes, LOGIN_L, 0, (struct sockaddr *) &from, &slen) < 0) {
+                        rc = sendto(s, login_str.c_str(), buf_size, 0, (struct sockaddr *) &from, slen);
+                        if (rc <= 0) {
+                            perror("send call failed");
+                            exit(1);
+                        }
+                        if (i > 9) {
+                            std::cout << "Aborting connection, no response" << std::endl;
+                            exit(0);
+                        }
+                    }
                 }
             }
 
-            //rc = sendto(s, "1", 1, 0, (struct sockaddr *) &from, slen);
+            /*
+            rc = sendto(s, "1", 1, 0, (struct sockaddr *) &from, slen);
             if (rc <= 0) {
                 perror("ack call failed");
                 exit(1);
             }
+             */
             if (logInRes[0] == '1') {
                 printf("Succesfully logged in \n");
                 break;
             } else if (logInRes[0] == '2')
                 printf("Already logged in in another session \n");
-            else
+            else if (logInRes[0] == '3')
+                printf("Incorrect format \n");
+            else {
                 printf("Wrong login:password pair \n");
+                std::cout << logInRes << std::endl;
+            }
         }
     }
 
 
     //main workflow loop
     while(1) {
-        index ++;
 
         std::getline (std::cin, str);
         //std::cin >> str;
 
         if (str == "ls") {
             //packing message size 0001 to buffer
-            for (int i = 0; i < size_index - 1; ++i) {
+            for (int i = 0; i < size_gap - 1; ++i) {
                 buf[i] = '0';
             }
             buf[command_descriptor_index - 1] = '1';
@@ -207,7 +197,7 @@ int main( void )
         }
 
         else if (str.compare(0,2,"cd") == 0) {
-            for (int i = 0; i < size_index - 1; ++i) {
+            for (int i = 0; i < size_gap - 1; ++i) {
                 buf[i] = '0';
             }
             buf[command_descriptor_index - 1] = '1';
@@ -219,12 +209,12 @@ int main( void )
                 continue;
             } else {
                 substring = str.substr(3);
-                if (substring.size() > buf_size - size_index) {
+                if (substring.size() > buf_size - size_gap - index_gap) {
                     perror("Out of input size, max length is 30 symbols");
                     break;
                 } else {
                     for (int i = 0; i < substring.size(); ++i) {
-                        buf[i + size_index + 1] = substring[i];
+                        buf[i + size_gap + 1] = substring[i];
                     }
                     pack_size(buf, substring.size() + 1);
                 }
@@ -234,7 +224,7 @@ int main( void )
         }
 
         else if (str=="who") {
-            for (int i = 0; i < size_index - 1; ++i) {
+            for (int i = 0; i < size_gap - 1; ++i) {
                 buf[i] = '0';
             }
             buf[command_descriptor_index - 1] = '1';
@@ -249,12 +239,12 @@ int main( void )
                 break;
             } else {
                 substring = str.substr(5);
-                if (substring.size() > buf_size - size_index) {
-                    perror("Out of input size, max length is 30 symbols");
+                if (substring.size() > buf_size - size_gap - index_gap) {
+                    perror("Out of input size");
                     //break;
                 } else {
                     for (int i = 0; i < substring.size(); ++i) {
-                        buf[i + size_index + 1] = substring[i];
+                        buf[i + size_gap + 1] = substring[i];
                     }
                     pack_size(buf, substring.size() + 1);
                 }
@@ -264,7 +254,7 @@ int main( void )
         }
 
         else if (str == "logout") {
-            for (int i = 0; i < size_index - 1; ++i) {
+            for (int i = 0; i < size_gap - 1; ++i) {
                 buf[i] = '0';
             }
             buf[command_descriptor_index - 1] = '1';
@@ -287,6 +277,7 @@ int main( void )
 
         if (!noInput) {
             //rc = send(s, buf, buf_size, 0);
+            index ++;
             rc = sendto(s, buf, buf_size, 0, (struct sockaddr *) &from, slen);
             if (rc <= 0) {
                 perror("send call failed");
@@ -295,10 +286,20 @@ int main( void )
 
 
             //rc = readn(s, buf_out, buf_out_size);
-            rc = recvfrom(s, buf_out, buf_out_size, 0, (struct sockaddr *) &from, &slen);
-            if (rc <= 0) {
-                perror("recv call failed");
-                break;
+            if ( recvfrom(s, buf_out, buf_out_size, 0, (struct sockaddr *) &from, &slen) < 0 ) {
+                for (int i = 0; i <= 10; ++i) {
+                    if (recvfrom(s, buf_out, buf_out_size, 0, (struct sockaddr *) &from, &slen) < 0) {
+                        rc = sendto(s, buf, buf_size, 0, (struct sockaddr *) &from, slen);
+                        if (rc <= 0) {
+                            perror("send call failed");
+                            break;
+                        }
+                        if (i > 9) {
+                            std::cout << "Server unreachable" << std::endl;
+                            exit(0);
+                        }
+                    }
+                }
             }
 
             std::cout << "Received: \n" << std::string(buf_out) << std::endl; //may not work */

@@ -36,7 +36,7 @@ std::vector<std::string> root_users;
 std::map <std::string, std::string> usr_session;
 std::map <std::string, sockaddr_in> usr_addr_map;
 std::vector<sockaddr_in> logged_in_addrs;
-std::vector<sockaddr_in> waiting_for_ack;
+std::vector<sockaddr_in> killed;
 //std::map <sockaddr_in, std::string> response_buf;
 
 
@@ -48,6 +48,7 @@ struct Socket_key_map {
 
 struct Routine_data {
     int socket;
+    int index;
     sockaddr_in addr;
     std::string buf;
     //char buf[BUFLEN];
@@ -60,7 +61,13 @@ struct Addr_resp_pair {
     std::string buf;
 };
 
+struct Addr_index_pair {
+    sockaddr_in addr;
+    int index;
+};
+
 std::vector<Addr_resp_pair> response_buf;
+std::vector<Addr_index_pair> indexes;
 
 
 std::string exec(const char* cmd) {
@@ -90,6 +97,14 @@ int get_size(char* buf) {
 }
 
 
+int get_index(char* buf) {
+    int size;
+    size = (buf[BUFLEN - 4] - '0') * 1000 + (buf[BUFLEN - 3] - '0') * 100 +
+           (buf[BUFLEN - 2] - '0') * 10 + (buf[BUFLEN - 1] - '0');
+    return size-1;
+}
+
+
 void *login_routine(void *data)
 {
     auto *rd_ptr = (Routine_data *)data;
@@ -99,6 +114,8 @@ void *login_routine(void *data)
     //struct sockaddr_in addr = rd_ptr->addr;
     char login_buf[BUFLEN];
     std::strcpy(login_buf, rd_ptr->buf.c_str());
+    char cwd[256];
+    std::string str_u_name;
     //std::strcpy(login_buf, rd_ptr->buf);
 
     int rc;
@@ -110,44 +127,63 @@ void *login_routine(void *data)
     std::map<std::string, std::string>::iterator it;
     std::pair<std::map<std::string, sockaddr_in>::iterator, bool> res;
 
-    //logic
-    running = strdupa(login_buf);
-    u_name = strsep(&running, ":");
-    password = strsep(&running, ":");
-    if (usr_session.find(u_name) != usr_session.end()) {
-        login[0] = '2';
-        rc = sendto(socket, login, 1, 0, (struct sockaddr *) &addr, slen);
-        if (rc <= 0) {
-            perror("send call failed");
-        }
+    if (rd_ptr->buf.find(":") == std::string::npos)
+    {
+        login[0] = '3';
+        sendto(socket, login, 1, 0, (struct sockaddr *) &addr, slen);
     } else {
-        if (usr_map.find(u_name)->second == password) {
-            login[0] = '1';
+    //logic
+        running = strdupa(login_buf);
+        u_name = strsep(&running, ":");
+        password = strsep(&running, ":");
+    //
+        if (usr_session.find(u_name) != usr_session.end()) {
+            login[0] = '2';
             rc = sendto(socket, login, 1, 0, (struct sockaddr *) &addr, slen);
             if (rc <= 0) {
                 perror("send call failed");
             }
         } else {
-            login[0] = '0';
-            rc = sendto(socket, login, 1, 0, (struct sockaddr *) &addr, slen);
-            if (rc <= 0) {
-                perror("send call failed");
+            if (usr_map.find(u_name)->second == password) {
+                login[0] = '1';
+                rc = sendto(socket, login, 1, 0, (struct sockaddr *) &addr, slen);
+                if (rc <= 0) {
+                    perror("send call failed");
+                }
+            } else {
+                login[0] = '0';
+                rc = sendto(socket, login, 1, 0, (struct sockaddr *) &addr, slen);
+                if (rc <= 0) {
+                    perror("send call failed");
+                }
+            }
+        }
+
+        pthread_mutex_lock(&mutex);
+        for (auto i = response_buf.begin(); i != response_buf.end();) {
+            if ((inet_ntoa(i->addr.sin_addr) == inet_ntoa(addr.sin_addr)) &&
+                (ntohs(i->addr.sin_port) == ntohs(addr.sin_port))) {
+                response_buf.erase(i);
+                //break;
+            } else { ++i; }
+        }
+        if ( login[0] == '1' ) {
+            res = usr_addr_map.insert(std::pair<std::string, sockaddr_in>(u_name, addr));
+            if (!res.second) {
+                usr_addr_map.erase(u_name);
+                res = usr_addr_map.insert(std::pair<std::string, sockaddr_in>(u_name, addr));
+            }
+
+            response_buf.emplace_back(Addr_resp_pair{addr, std::string(1, login[0])});
+            logged_in_addrs.push_back(addr);
+            if (getcwd(cwd, sizeof(cwd)) == NULL)
+                perror("getcwd() error");
+            else {
+                usr_session.insert(std::pair<std::string, std::string>(u_name, std::string(cwd)));
             }
         }
     }
 
-    pthread_mutex_lock(&mutex);
-    res = usr_addr_map.insert(std::pair<std::string, sockaddr_in>(u_name, addr));
-    if ( ! res.second ) {
-        usr_addr_map.erase(u_name);
-        res = usr_addr_map.insert(std::pair<std::string, sockaddr_in>(u_name, addr));
-    }
-    //response_buf.insert(std::pair <sockaddr_in, std::string>(addr, login));
-    response_buf.emplace_back(Addr_resp_pair{addr, login});
-    waiting_for_ack.push_back(addr);
-    pthread_mutex_unlock(&mutex);
-
-    pthread_mutex_lock(&mutex);
     connections--;
     pthread_mutex_unlock(&mutex);
 }
@@ -168,6 +204,7 @@ void *terminal_routine(void *data) {
     char sub_buf[BUFLEN];
     bool logout;
     int input_size;
+    sockaddr_in victim_addr;
     std::string output;
     std::string u_name;
     std::map<std::string, std::string>::iterator it;
@@ -216,12 +253,32 @@ void *terminal_routine(void *data) {
                 if (std::string(sub_buf) == u_name) {
                     output = "You can not kill your own session. Use 'logout' command instead";
                 } else {
+                    pthread_mutex_lock(&mutex);
                     for (auto i = logged_in_addrs.begin(); i != logged_in_addrs.end();) {
                         if (inet_ntoa(i->sin_addr) == inet_ntoa(usr_addr_map.find(std::string(sub_buf))->second.sin_addr) &&
                             (ntohs(i->sin_port) == ntohs(usr_addr_map.find(std::string(sub_buf))->second.sin_port))) {
                             logged_in_addrs.erase(i);
                         } else {++i;}
                     }
+                    victim_addr = usr_addr_map.find(std::string(sub_buf))->second;
+                    killed.push_back(victim_addr);
+                    usr_session.erase(std::string(sub_buf));
+                    usr_addr_map.erase(std::string(sub_buf));
+                    for (auto i = response_buf.begin(); i != response_buf.end();) {
+                        if ((inet_ntoa(i->addr.sin_addr) == inet_ntoa(victim_addr.sin_addr)) &&
+                            (ntohs(i->addr.sin_port) == ntohs(victim_addr.sin_port))) {
+                            response_buf.erase(i);
+                            //break;
+                        } else {++i;}
+                    }
+                    for (auto i = indexes.begin(); i != indexes.end();) {
+                        if ((inet_ntoa(i->addr.sin_addr) == inet_ntoa(victim_addr.sin_addr)) &&
+                            (ntohs(i->addr.sin_port) == ntohs(victim_addr.sin_port))) {
+                            indexes.erase(i);
+                            //break;
+                        } else {++i;}
+                    }
+                    pthread_mutex_unlock(&mutex);
                     output = "Succesful murder";
                 }
             } else {
@@ -264,106 +321,24 @@ void *terminal_routine(void *data) {
 }
 
 
-void *login_ack_routine(void *data)
+void *repeat_response_routine(void *data)
 {
     auto *rd_ptr = (Routine_data *)data;
     int socket = rd_ptr->socket;
+    int index = rd_ptr->index;
     sockaddr_in addr = rd_ptr->addr;
     unsigned int slen = sizeof(addr);
     char buf[BUFLEN];
-    char cwd[256];
-    std::string u_name;
-    std::strcpy(buf, rd_ptr->buf.c_str());
-    if ( buf[0] == '1' )
-    {
-        pthread_mutex_lock(&mutex);
-        //response_buf.erase(addr);
-        for ( auto r = response_buf.begin(); r != response_buf.end(); ++r ) {
-            if (inet_ntoa(r->addr.sin_addr) == inet_ntoa(addr.sin_addr) &&
-               (ntohs(r->addr.sin_port) == ntohs(addr.sin_port)))
-            {
-               response_buf.erase(r);
-               break;
-            }
-        }
-        //waiting_for_ack.erase(std::remove(waiting_for_ack.begin(), waiting_for_ack.end(), addr), waiting_for_ack.end());
-        for ( auto i = waiting_for_ack.begin(); i != waiting_for_ack.end(); ++i ) {
-            if (inet_ntoa(i->sin_addr) == inet_ntoa(addr.sin_addr) &&
-               (ntohs(i->sin_port) == ntohs(addr.sin_port)))
-            {
-                waiting_for_ack.erase(i);
-                break;
-            }
-        }
-        logged_in_addrs.push_back(addr);
-        if (getcwd(cwd, sizeof(cwd)) == NULL)
-            perror("getcwd() error");
-        else {
-            for ( auto &i : usr_addr_map ) {
-                if (inet_ntoa(i.second.sin_addr) == inet_ntoa(addr.sin_addr) &&
-                   (ntohs(i.second.sin_port) == ntohs(addr.sin_port)))
-                {
-                    u_name = i.first;
-                    break;
-                }
-            }
-            usr_session.insert(std::pair <std::string, std::string> (u_name, std::string(cwd)));
-        }
-        pthread_mutex_unlock(&mutex);
-    } else {
-        for ( auto &i : response_buf ) {
-            if (inet_ntoa(i.addr.sin_addr) == inet_ntoa(addr.sin_addr) &&
-               (ntohs(i.addr.sin_port) == ntohs(addr.sin_port)))
-            {
-                sendto(socket, i.buf.c_str(), 1, 0, (struct sockaddr *) &addr, slen);
-                break;
-            }
+
+    for ( auto &response : response_buf ) {
+        if ( ( inet_ntoa(response.addr.sin_addr) == inet_ntoa(addr.sin_addr) ) &&
+             ( ntohs(response.addr.sin_port) == ntohs(addr.sin_port) ))
+        {
+            sendto(socket, response.buf.c_str(), buf_out_size, 0, (sockaddr *) &addr, slen);
+            std::cout << "Again" << std::endl;
         }
     }
-    pthread_mutex_lock(&mutex);
-    connections--;
-    pthread_mutex_unlock(&mutex);
-}
 
-
-void *ack_routine(void *data)
-{
-    auto *rd_ptr = (Routine_data *)data;
-    int socket = rd_ptr->socket;
-    sockaddr_in addr = rd_ptr->addr;
-    unsigned int slen = sizeof(addr);
-    char buf[BUFLEN];
-    std::strcpy(buf, rd_ptr->buf.c_str());
-    if ( buf[0] == '1' )
-    {
-        pthread_mutex_lock(&mutex);
-        for ( auto r = response_buf.begin(); r != response_buf.end(); ++r ) {
-            if (inet_ntoa(r->addr.sin_addr) == inet_ntoa(addr.sin_addr) &&
-                (ntohs(r->addr.sin_port) == ntohs(addr.sin_port)))
-            {
-                response_buf.erase(r);
-                break;
-            }
-        }
-        for ( auto i = waiting_for_ack.begin(); i != waiting_for_ack.end(); ++i ) {
-            if (inet_ntoa(i->sin_addr) == inet_ntoa(addr.sin_addr) &&
-                (ntohs(i->sin_port) == ntohs(addr.sin_port)))
-            {
-                waiting_for_ack.erase(i);
-                break;
-            }
-        }
-        pthread_mutex_unlock(&mutex);
-    } else {
-        for ( auto &i : response_buf ) {
-            if (inet_ntoa(i.addr.sin_addr) == inet_ntoa(addr.sin_addr) &&
-                (ntohs(i.addr.sin_port) == ntohs(addr.sin_port)))
-            {
-                sendto(socket, i.buf.c_str(), buf_out_size, 0, (struct sockaddr *) &addr, slen);
-                break;
-            }
-        }
-    }
     pthread_mutex_lock(&mutex);
     connections--;
     pthread_mutex_unlock(&mutex);
@@ -378,10 +353,13 @@ void *recvfrom_routine(void *server_socket_ptr)
     auto *skp_ptr = (Socket_key_map *)server_socket_ptr;
     int s = skp_ptr->socket, recv_len;
     unsigned int slen = sizeof(si_other);
-    bool is_new = 1;
-    bool wait_for_ack = 0;
+    bool is_new = true;
+    bool already_requested = false;
     int local_connections;
+    int index;
+    bool index_error = 0;
     Routine_data rd;
+    Addr_index_pair addr_index_pair;
 
     while(1) {
         //try to receive some data, this is a blocking call
@@ -393,7 +371,23 @@ void *recvfrom_routine(void *server_socket_ptr)
                 perror("recv_from error");
                 break;
             }
-            rd = {s, si_other, buf};
+            for (auto k = killed.begin(); k != killed.end();) {
+                if ((inet_ntoa(k->sin_addr) == inet_ntoa(si_other.sin_addr)) &&
+                    (ntohs(k->sin_port) == ntohs(si_other.sin_port)))
+                {
+                    killed.erase(k);
+                    sendto(s, "Session closed by administrator", buf_out_size, 0, (sockaddr *) &k, slen);
+                } else {++k;}
+            }
+            index = get_index(buf);
+            std::cout << index << std::endl;
+            rd = {s, index, si_other, buf};
+
+            if ( index < 0)
+            {
+                std::cout << "Incorrect package index, droping the package" << index <<std::endl;
+                continue;
+            }
 
             for ( sockaddr_in &e : logged_in_addrs ) {
                 if (inet_ntoa(e.sin_addr) == inet_ntoa(si_other.sin_addr) &&
@@ -404,44 +398,51 @@ void *recvfrom_routine(void *server_socket_ptr)
                 }
             }
 
-            for ( auto &a : waiting_for_ack ) {
-                if ( inet_ntoa(a.sin_addr) == inet_ntoa(si_other.sin_addr ) &&
-                     ( ntohs(a.sin_port) == ntohs(si_other.sin_port )))
-                {
-                    wait_for_ack = 1;
-                    break;
-                }
-            }
-
             if ( is_new )
             {
-                if ( wait_for_ack )
-                {
-                    pthread_mutex_lock(&mutex);
-                    pthread_create(&threads[connections], NULL, &login_ack_routine, &rd); //change buf
-                    connections++;
-                    pthread_mutex_unlock(&mutex);
-                } else {
-                    pthread_mutex_lock(&mutex);
-                    pthread_create(&threads[connections], NULL, &login_routine, &rd); //change buf
-                    connections++;
-                    pthread_mutex_unlock(&mutex);
-                }
+                addr_index_pair = {si_other, index};
+                pthread_mutex_lock(&mutex);
+                indexes.push_back(addr_index_pair);
+                pthread_create(&threads[connections], NULL, &login_routine, &rd);
+                connections++;
+                pthread_mutex_unlock(&mutex);
             } else {
-                if ( wait_for_ack )
+                for ( auto &i : indexes ) {
+                    if ( ( inet_ntoa(i.addr.sin_addr) == inet_ntoa(si_other.sin_addr) ) &&
+                         ( ntohs(i.addr.sin_port) == si_other.sin_port ))
+                    {
+                        if ( i.index == index )
+                        {
+                            already_requested = 1;
+                            break;
+                        } else if ( index - i.index == 1 )
+                        {
+                            i.index = index;
+                        } else if ( index - i.index > 1 )
+                        {
+                            index_error = 1;
+                        }
+                    }
+                }
+                if ( index_error )
+                {
+                    std::cout << "Index error, package dropped with no response" << std::endl;
+                    index_error = 0;
+                    continue;
+                }
+                if ( already_requested )
                 {
                     pthread_mutex_lock(&mutex);
-                    pthread_create(&threads[connections], NULL, &ack_routine, &rd); //change buf
-                    connections++;
+                    pthread_create(&threads[connections], NULL, &repeat_response_routine, &rd);
                     pthread_mutex_unlock(&mutex);
                 } else {
                     pthread_mutex_lock(&mutex);
-                    pthread_create(&threads[connections], NULL, &terminal_routine, &rd); //change buf
+                    pthread_create(&threads[connections], NULL, &terminal_routine, &rd);
                     connections++;
                     pthread_mutex_unlock(&mutex);
                 }
             }
-            wait_for_ack = 0;
+            already_requested = 0;
             is_new = 1;
         } else
             sleep(1);
