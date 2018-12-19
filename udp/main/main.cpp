@@ -261,7 +261,6 @@ void *terminal_routine(void *data) {
                         } else {++i;}
                     }
                     victim_addr = usr_addr_map.find(std::string(sub_buf))->second;
-                    killed.push_back(victim_addr);
                     usr_session.erase(std::string(sub_buf));
                     usr_addr_map.erase(std::string(sub_buf));
                     for (auto i = response_buf.begin(); i != response_buf.end();) {
@@ -360,6 +359,7 @@ void *recvfrom_routine(void *server_socket_ptr)
     bool index_error = 0;
     Routine_data rd;
     Addr_index_pair addr_index_pair;
+    std::string temp = "Session closed by administrator";
 
     while(1) {
         //try to receive some data, this is a blocking call
@@ -371,16 +371,7 @@ void *recvfrom_routine(void *server_socket_ptr)
                 perror("recv_from error");
                 break;
             }
-            for (auto k = killed.begin(); k != killed.end();) {
-                if ((inet_ntoa(k->sin_addr) == inet_ntoa(si_other.sin_addr)) &&
-                    (ntohs(k->sin_port) == ntohs(si_other.sin_port)))
-                {
-                    killed.erase(k);
-                    sendto(s, "Session closed by administrator", buf_out_size, 0, (sockaddr *) &k, slen);
-                } else {++k;}
-            }
             index = get_index(buf);
-            std::cout << index << std::endl;
             rd = {s, index, si_other, buf};
 
             if ( index < 0)
@@ -398,6 +389,32 @@ void *recvfrom_routine(void *server_socket_ptr)
                 }
             }
 
+            for ( Addr_index_pair &i : indexes ) {
+                //std::cout << inet_ntoa(i.addr.sin_addr)  <<" Index stored:" << i.index << "port: " << ntohs(i.addr.sin_port) << std::endl;
+                //std::cout << inet_ntoa(si_other.sin_addr)  <<" Index stored:" << i.index << "port: " << ntohs(si_other.sin_port) << std::endl;
+                if ( ( inet_ntoa(i.addr.sin_addr) == inet_ntoa(si_other.sin_addr) ) &&
+                     ( ntohs(i.addr.sin_port) == ntohs(si_other.sin_port) ))
+                {
+                    if ( i.index == index )
+                    {
+                        already_requested = 1;
+                        break;
+                    } else if ( index - i.index == 1 )
+                    {
+                        i.index = index;
+                    } else if ( index - i.index > 1 )
+                    {
+                        index_error = 1;
+                    }
+                }
+            }
+            if ( index_error )
+            {
+                std::cout << "Index error, package dropped with no response" << std::endl;
+                index_error = 0;
+                continue;
+            }
+
             if ( is_new )
             {
                 addr_index_pair = {si_other, index};
@@ -407,29 +424,7 @@ void *recvfrom_routine(void *server_socket_ptr)
                 connections++;
                 pthread_mutex_unlock(&mutex);
             } else {
-                for ( auto &i : indexes ) {
-                    if ( ( inet_ntoa(i.addr.sin_addr) == inet_ntoa(si_other.sin_addr) ) &&
-                         ( ntohs(i.addr.sin_port) == si_other.sin_port ))
-                    {
-                        if ( i.index == index )
-                        {
-                            already_requested = 1;
-                            break;
-                        } else if ( index - i.index == 1 )
-                        {
-                            i.index = index;
-                        } else if ( index - i.index > 1 )
-                        {
-                            index_error = 1;
-                        }
-                    }
-                }
-                if ( index_error )
-                {
-                    std::cout << "Index error, package dropped with no response" << std::endl;
-                    index_error = 0;
-                    continue;
-                }
+
                 if ( already_requested )
                 {
                     pthread_mutex_lock(&mutex);

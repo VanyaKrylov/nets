@@ -124,7 +124,7 @@ int main( void )
 
 
     while (1) {
-        index++;
+        index = index + 1;
         printf("Log in: {user_name}:{password}: \n");
         std::getline(std::cin, login_str);
         if (login_str.size() > buf_size - size_gap - index_gap) {
@@ -135,8 +135,9 @@ int main( void )
             //    login_buf[i+size_gap] = str[i];
             //}
             login_str.resize(buf_size, 0);
-            pack_index_str(login_str, index);
-            rc = sendto(s, login_str.c_str(), buf_size, 0, (struct sockaddr *) &from, slen);
+            strcpy(login_buf, login_str.c_str());
+            pack_index(login_buf, index);
+            rc = sendto(s, login_buf, buf_size, 0, (struct sockaddr *) &from, slen);
             if (rc <= 0) {
                 perror("send call failed");
                 exit(1);
@@ -145,7 +146,7 @@ int main( void )
             if ( recvfrom(s, logInRes, LOGIN_L, 0, (struct sockaddr *) &from, &slen) < 0 ) {
                 for (int i = 0; i <= 10; ++i) {
                     if (recvfrom(s, logInRes, LOGIN_L, 0, (struct sockaddr *) &from, &slen) < 0) {
-                        rc = sendto(s, login_str.c_str(), buf_size, 0, (struct sockaddr *) &from, slen);
+                        rc = sendto(s, login_buf, buf_size, 0, (struct sockaddr *) &from, slen);
                         if (rc <= 0) {
                             perror("send call failed");
                             exit(1);
@@ -273,11 +274,11 @@ int main( void )
         else
             noInput = 1;
 
-        pack_index(buf, index);
 
         if (!noInput) {
             //rc = send(s, buf, buf_size, 0);
             index ++;
+            pack_index(buf, index);
             rc = sendto(s, buf, buf_size, 0, (struct sockaddr *) &from, slen);
             if (rc <= 0) {
                 perror("send call failed");
@@ -302,6 +303,11 @@ int main( void )
                 }
             }
 
+            if (buf_out[0] == '3')
+            {
+                std::cout << "Session closed by administrator" << std::endl;
+                exit(0);
+            }
             std::cout << "Received: \n" << std::string(buf_out) << std::endl; //may not work */
             memset(&buf_out, 0, sizeof(buf_out));
 
