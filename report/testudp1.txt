@@ -1,0 +1,10 @@
+(client)
+Log in: {user_name}:{password}: 
+ivan:0000:
+Succesfully logged in 
+ls
+Received: 
+1
+________________________________
+(server)
+Again

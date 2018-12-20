@@ -1,0 +1,22 @@
+(client)
+Log in: {user_name}:{password}: 
+ivan:0000:
+Succesfully logged in 
+ls
+Server unreachable
+
+Process finished with exit code 0
+__________________________________
+(server)
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response
+Index error, package dropped with no response

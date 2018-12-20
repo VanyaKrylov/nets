@@ -1,0 +1,71 @@
+(ivan - priviliged user)
+Log in: {user_name}:{password}: 
+ivan:0000:
+Succesfully logged in 
+who
+Received: 
+ivan /home/ivan/Documents/nets/remote_terminal/cmake-build-debug
+valik /home/ivan/Documents/nets/remote_terminal/cmake-build-debug
+
+ls
+Received: 
+CMakeCache.txt
+CMakeFiles
+cmake_install.cmake
+Makefile
+remote_terminal
+remote_terminal.cbp
+
+kill ivan
+Received: 
+You can not kill your own session. Use 'logout' command instead
+kill valik
+Received: 
+Succesful murder
+logout
+Session closed, logged out
+Process finished with exit code 0
+_________________________________________________________________
+(valik)
+Log in: {user_name}:{password}: 
+ivan:0000:
+Already logged in in another session 
+Log in: {user_name}:{password}: 
+valik:1228:
+Succesfully logged in 
+kill valik
+Received: 
+Permission denied
+ls
+recv call failed: Success
+Session closed, logged 
+__________________________________________________________________
+(vaddya)
+Log in: {user_name}:{password}: 
+vaddya:32283228:
+Succesfully logged in 
+who
+Received: 
+ivan /home/ivan/Documents/nets/remote_terminal/cmake-build-debug
+vaddya /home/ivan/Documents/nets/remote_terminal/cmake-build-debug
+valik /home/ivan/Documents/nets/remote_terminal/cmake-build-debug
+
+kill valik
+Received: 
+Permission denied
+ls
+Received: 
+CMakeCache.txt
+CMakeFiles
+cmake_install.cmake
+Makefile
+remote_terminal
+remote_terminal.cbp
+
+who
+Received: 
+vaddya /home/ivan/Documents/nets/remote_terminal/cmake-build-debug
+
+ls
+recv call failed: Success
+Session closed, logged out

@@ -103,7 +103,6 @@ int main( void )
     }
 
     //Log in loop
-
     while (1) {
         index = index + 1;
         printf("Log in: {user_name}:{password}: \n");
@@ -153,6 +152,7 @@ int main( void )
 
     //main workflow loop
     while(1) {
+        index--;
 
         std::getline (std::cin, str);
 
@@ -227,7 +227,6 @@ int main( void )
             }
             buf[command_descriptor_index - 1] = '1';
             buf[command_descriptor_index] = '5';
-            //rc = send(s, buf, buf_size, 0);
             pack_index(buf, index);
             rc = sendto(s, buf, buf_size, 0, (struct sockaddr *) &from, slen);
             if (rc <= 0)
@@ -237,7 +236,6 @@ int main( void )
             }
             break;
         }
-
         else
             noInput = 1;
 
@@ -275,7 +273,6 @@ int main( void )
             std::cout << "Received: \n" << std::string(buf_out) << std::endl; //may not work */
             memset(&buf_out, 0, sizeof(buf_out));
         }
-
     }
 
     close(s);

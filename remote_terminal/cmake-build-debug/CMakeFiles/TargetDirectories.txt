@@ -1,3 +1,0 @@
-/home/ivan/Documents/nets/remote_terminal/cmake-build-debug/CMakeFiles/rebuild_cache.dir
-/home/ivan/Documents/nets/remote_terminal/cmake-build-debug/CMakeFiles/remote_terminal.dir
-/home/ivan/Documents/nets/remote_terminal/cmake-build-debug/CMakeFiles/edit_cache.dir
