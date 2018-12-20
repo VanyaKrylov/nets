@@ -27,7 +27,7 @@ const int max_connections = 10;
 const int buf_out_size = 8182;
 
 pthread_t threads[10];
-pthread_t accept_thread;
+pthread_t recvfrom_thread;
 int connections = 0;
 pthread_mutex_t mutex;
 
@@ -470,7 +470,7 @@ int main(void)
         exit(1);
     }
     pthread_mutex_init(&mutex, NULL);
-    pthread_create(&accept_thread, NULL, &recvfrom_routine, &skp);
+    pthread_create(&recvfrom_thread, NULL, &recvfrom_routine, &skp);
 
     //keep listening for data
     while (1) {
@@ -516,7 +516,7 @@ int main(void)
     if (rc < 0)
         perror("close call failed");
 
-    pthread_join(accept_thread, NULL);
+    pthread_join(recvfrom_thread, NULL);
     pthread_mutex_destroy(&mutex);
     return 0;
 }
